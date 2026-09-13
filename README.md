@@ -20,7 +20,7 @@ On Mac, open the DMG and drag Fastread into Applications. Open the app and follo
 
 These downloads are previews. The Mac app uses an ad-hoc signature and is not notarized; Windows installers are unsigned. Operating systems may warn or block first launch. This release does not claim normal signed-app installation trust.
 
-Mac Apple Silicon has passed packaged UI and controlled native selection, shortcut, focus, and clipboard fixture checks. Intel UI is checked under Rosetta on Apple Silicon, not on an Intel Mac. The Windows workflow checks the actual download, installer, reader UI, and uninstall on a hosted x64 Windows runner. Its run result is evidence only after it passes; it does not prove selection capture, everyday desktop use, or Windows ARM64 behavior.
+Mac Apple Silicon has passed packaged UI and controlled native selection, shortcut, focus, and clipboard fixture checks. Intel UI is checked under Rosetta on Apple Silicon, not on an Intel Mac. The [Windows x64 verification run](https://github.com/RalfsSavielis/fastread-releases/actions/runs/34764945407) passed the actual download checksum, installer, reader UI, and uninstall checks on September 13, 2026. It does not prove selection capture, everyday desktop use, or Windows ARM64 behavior.
 
 Selection support depends on the source application. Password fields, image-only text, and unavailable selections are not readable. The macOS copy fallback has unresolved races with concurrent clipboard writers; clipboard preservation is not guaranteed. Background clipboard tools can trigger the same risk. The app also offers explicit paste input.
 
