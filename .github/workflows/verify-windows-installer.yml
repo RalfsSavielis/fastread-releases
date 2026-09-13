@@ -1,0 +1,75 @@
+name: Verify Windows preview installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact release tag to verify
+        required: true
+        default: v1.0.0-preview.20260913
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22
+      - name: Download and verify exact release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: pwsh
+        run: |
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --pattern Fastread-1.0.0-win.exe --pattern SHA256SUMS.txt
+          $line = Get-Content SHA256SUMS.txt | Where-Object { $_ -match '  Fastread-1.0.0-win.exe$' }
+          if (!$line) { throw 'Installer checksum missing' }
+          $expected = $line.Split(' ')[0].ToUpperInvariant()
+          $actual = (Get-FileHash Fastread-1.0.0-win.exe -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw 'Installer checksum mismatch' }
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          $actual | Set-Content evidence/installer-sha256.txt
+          Get-AuthenticodeSignature Fastread-1.0.0-win.exe | Select-Object Status, StatusMessage | ConvertTo-Json | Set-Content evidence/signature.json
+      - name: Install preview and launch installed executable
+        shell: pwsh
+        run: |
+          $appDir = Join-Path $env:RUNNER_TEMP 'FastreadPreview'
+          $installer = Start-Process -FilePath (Resolve-Path Fastread-1.0.0-win.exe) -ArgumentList '/S', "/D=$appDir" -Wait -PassThru
+          if ($installer.ExitCode -ne 0) { throw "Installer failed: $($installer.ExitCode)" }
+          $exe = Join-Path $appDir 'Fastread.exe'
+          if (!(Test-Path $exe)) { throw 'Installed executable missing' }
+          Get-Process Fastread -ErrorAction SilentlyContinue | Stop-Process -Force
+          $env:FASTREAD_USER_DATA = Join-Path $env:RUNNER_TEMP 'FastreadPreviewProfile'
+          $app = Start-Process -FilePath $exe -ArgumentList '--remote-debugging-port=9222' -PassThru
+          $app.Id | Set-Content evidence/launched-pid.txt
+          (Get-Item $exe).VersionInfo | Select-Object FileVersion, ProductVersion, ProductName | ConvertTo-Json | Set-Content evidence/installed-version.json
+      - name: Verify actual installed reader UI
+        shell: pwsh
+        run: |
+          npm install --no-save --ignore-scripts playwright-core@1.63.0
+          node scripts/check-installed-reader.cjs
+      - name: Uninstall preview
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process Fastread -ErrorAction SilentlyContinue | Stop-Process -Force
+          $appDir = Join-Path $env:RUNNER_TEMP 'FastreadPreview'
+          $uninstaller = Join-Path $appDir 'Uninstall Fastread.exe'
+          if (Test-Path $uninstaller) {
+            $process = Start-Process -FilePath $uninstaller -ArgumentList '/S', "_?=$appDir" -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "Uninstall failed: $($process.ExitCode)" }
+            if (Test-Path (Join-Path $appDir 'Fastread.exe')) { throw 'Uninstall left the application executable behind' }
+            'passed' | Set-Content evidence/uninstall.txt
+          } else {
+            throw 'Uninstaller missing'
+          }
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: windows-x64-installer-evidence
+          path: evidence/
